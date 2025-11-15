@@ -1800,7 +1800,7 @@ object Parsers {
                     funArgType()
                   commaSeparatedRest(t, funArg)
           accept(RPAREN)
-          if in.isArrow || isPureArrow || erasedArgs.contains(true) then
+          if in.isArrow || in.token == TLARROW || isPureArrow || erasedArgs.contains(true) then
             functionRest(args)
           else
             val tuple = atSpan(start):
@@ -2087,10 +2087,9 @@ object Parsers {
         typeBounds().withSpan(Span(start, in.lastOffset, start))
       else
         val tpt = simpleType1()
-        if in.featureEnabled(Feature.modularity)  && in.token == LPAREN then
+        if (in.featureEnabled(Feature.modularity) || in.featureEnabled(Feature.dependent)) && in.token == LPAREN then
           parArgumentExprss(wrapNew(tpt))
-        else
-          tpt
+        else tpt
 
     /** SimpleType1      ::=  id
      *                     |  Singleton `.' id
