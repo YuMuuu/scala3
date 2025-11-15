@@ -1355,7 +1355,8 @@ trait Applications extends Compatibility {
         }
       else {
         val app = tree.fun match
-          case _ if ctx.mode.is(Mode.Type) && Feature.enabled(Feature.modularity) && !ctx.isAfterTyper =>
+          // In type mode, allow `T(args)` when experimental.dependent or modularity is enabled
+          case _ if ctx.mode.is(Mode.Type) && (Feature.enabled(Feature.modularity) || Feature.dependentEnabled) && !ctx.isAfterTyper =>
             untpd.methPart(tree.fun) match
               case Select(nw @ New(_), _) => typedAppliedConstructorType(nw, tree.args, tree)
               case _ => realApply
@@ -1380,6 +1381,8 @@ trait Applications extends Compatibility {
     }
     ConstFold(app2)
   }
+
+  
 
   /** Typecheck an Apply node with a typed function and possibly-typed arguments coming from `proto` */
   def ApplyTo(app: untpd.Apply, fun: tpd.Tree, methRef: TermRef, proto: FunProto, resultType: Type)(using Context): tpd.Tree =
@@ -1800,17 +1803,9 @@ trait Applications extends Compatibility {
    * ```
    */
   def typedAppliedConstructorType(nw: untpd.New, args: List[untpd.Tree], tree: untpd.Apply)(using Context) =
-    val tree1 = typedExpr(tree)
-    val preciseTp = tree1.tpe.widenSkolems
+    // In type position, drop term arguments and keep the callee type.
     val classTp = typedType(nw.tpt).tpe
-    def classSymbolHasOnlyTrackedParameters =
-      !classTp.classSymbol.primaryConstructor.paramSymss.nestedExists: param =>
-        param.isTerm && !param.is(Tracked)
-    if !preciseTp.isError && !classSymbolHasOnlyTrackedParameters then
-      report.warning(OnlyFullyDependentAppliedConstructorType(), tree.srcPos)
-    if !preciseTp.isError && (preciseTp frozen_=:= classTp) then
-      report.warning(PointlessAppliedConstructorType(nw.tpt, args, classTp), tree.srcPos)
-    TypeTree(preciseTp)
+    TypeTree(classTp)
 
   /** Is given method reference applicable to argument trees `args`?
    *  @param  resultType   The expected result type of the application

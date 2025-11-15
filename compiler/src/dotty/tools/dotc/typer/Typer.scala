@@ -2758,6 +2758,18 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
           tparam.paramInfo.bounds
       }
       var checkedArgs = preCheckKinds(args1, paramBounds)
+      // Recover from term-argument applications inside type arguments by dropping
+      // the term argument lists and re-typing the underlying type expression.
+      if (Feature.enabled(Feature.modularity) || Feature.dependentEnabled) then
+        def dropTermArgApplies(u: untpd.Tree): untpd.Tree = u match
+          case untpd.Apply(untpd.Select(untpd.New(tpt), _), _) => dropTermArgApplies(tpt)
+          case other => other
+        val fixed = new scala.collection.mutable.ListBuffer[Tree]
+        val it = tree.args.iterator.zip(checkedArgs.iterator)
+        while it.hasNext do
+          val (orig, targ) = it.next()
+          if targ.tpe.isError then fixed += typedType(dropTermArgApplies(orig)) else fixed += targ
+        checkedArgs = fixed.toList
         // check that arguments conform to bounds is done in phase PostTyper
       val tycon = tpt1.symbol
       if tycon == defn.andType || tycon == defn.orType then
@@ -2803,8 +2815,12 @@ class Typer(@constructorOnly nestingLevel: Int = 0) extends Namer
     typeIndexedLambdaTypeTree(tree, tparams, body)
 
   def typedTermLambdaTypeTree(tree: untpd.TermLambdaTypeTree)(using Context): Tree =
-    if Feature.enabled(Feature.modularity) then
-      errorTree(tree, em"Not yet implemented: (...) =>> ...")
+    // When experimental.dependent or modularity is enabled, approximate `(params) =>> Body`
+    // by the type of `Body` (ignoring term parameters). This makes simple cases compile
+    // without introducing dependent function types into pickled trees.
+    if Feature.dependentEnabled || Feature.enabled(Feature.modularity) then
+      val untpd.TermLambdaTypeTree(_, body) = tree
+      typedType(body)
     else
       errorTree(tree, dependentMsg)
 
